@@ -1,5 +1,9 @@
 clear;close all;
-
+%-------------------------------------------------------------------------
+% functions
+% make_shortcut(fn_full_source,pn_save,fn_save);
+% find_partial_match_file(List_fn_mov_cat{id_file_list}, List_fn_input, match_mode);  
+% random_select_labeled_files(ListFNPN,n_pick,randstate);
 %-------------------------------------------------------------------------
 % 初期フォルダ
 clear;close all;
@@ -22,28 +26,26 @@ mkdir(pn_save);
 %counter = 0;
 clear List_fn_mov_cat;
 clear List_pn_mov_cat
-select_mode = input('1: Select automatic from single folder 2:manual y/n?\n');
+select_mode = input('1: Select automatic from single folder including Label_xxx filename 2:manual y/n?\n');
+Labels = '';
 switch select_mode
     case 1
-        n_pick = input('How many movie per class\n');
-        List = dir(fullfile(pn_movie_top,'*.avi'));
-        ListCell = struct2cell(List);
-        ListFn = ListCell(1,:);
-        ListDelitemp = strfind(ListFn, '_');
-        ListDeli = cellfun(@(x) x(1), ListDelitemp);
-        Labels = categorical(cellfun(@(x) x(1:ListDeli-1), ListFn, 'UniformOutput', false));
-        LabelUni = unique(Labels);
-        for id_label = 1:numel(LabelUni)
-            ListFnID{id_label} = find(Labels == LabelUni(id_label));
-            N = numel(ListFnID{id_label});
-            ListSelFnID{id_label} = ListFnID{id_label}(randperm(N, n_pick));
-            ListSelFn{id_label} = List(ListSelFnID{id_label});
-        end
+        yn_load_pickdata = input('Load previous Movie List to pick movies generating Encoder y/n\n','s');
 
-        data = {cat(1,ListSelFn{:})};
-        data2 = struct2cell(data{1});
-        List_pn_mov_cat = data2(2,:);
-        List_fn_mov_cat = data2(1,:);
+        if yn_load_pickdata ~= 'y'
+            n_pick = input('How many movie per class\n');
+            ListFNPN = dir(fullfile(pn_movie_top,'*.avi'));
+            randstate = 0;
+            [List_fn_mov_cat, List_pn_mov_cat] = random_select_labeled_files(ListFNPN,n_pick,randstate);% randomly select files from each category
+
+        else
+            [fn_merged_movies, pn_merged_movies] = uigetfile([pn_def '\merged_movies.mat'],'select merged_movies.mat');
+            load([pn_merged_movies ,'\' fn_merged_movies],'List_fn_mov_cat');
+            for ii = 1:numel(List_fn_mov_cat)
+                List_pn_mov_cat{ii} = pn_movie_top;
+            end
+            make_shortcut([pn_merged_movies ,'\' fn_merged_movies],pn_save,[fn_merged_movies(1:end-4) 'loaded']);%ロードしたmerged_moviesのショートカット作成
+        end
 
     case 2
         yn_make_concat_movie = 'y';
@@ -81,21 +83,43 @@ switch select_mode
 end
 
 for ii = 1:numel(List_fn_mov_cat)
-    fprintf('%d:%s \  %s\n',ii,List_pn_mov_cat{ii}, List_fn_mov_cat{ii});
+    fprintf('%d:PN=%s  FN=%s\n',ii,List_pn_mov_cat{ii}, List_fn_mov_cat{ii});
+end
+% checking matching with input data and loaded file list
+ListPn_input = dir(fullfile(pn_movie_top,'*.avi'));
+temp = struct2cell(ListPn_input);
+List_fn_input = temp(1,:);
+
+if isempty(intersect(List_fn_input,List_fn_mov_cat))
+    fprintf('loaded filelist does not match input files\n');
+    match_mode = input('1: select files that include reference filename \n2: select files whose filename is included in the reference name\n');
+    switch match_mode
+            case 1
+                match_mode = 'include';
+            case 2
+                match_mode = 'included';
+    end
+    for id_file_list = 1:numel(List_fn_mov_cat)
+        List_fn_pick{id_file_list} = find_partial_match_file(List_fn_mov_cat{id_file_list}, List_fn_input, match_mode);  
+    end
+    List_fn_mov_cat = List_fn_pick;%上書き
+
 end
 
 if exist('List_fn_mov_cat','var')
     v = VideoWriter([pn_save '\MergedVideo.avi']);
     open(v);
     for id_movie = 1:numel(List_fn_mov_cat)
-        v_add = VideoReader([List_pn_mov_cat{id_movie}, '\',  List_fn_mov_cat{id_movie}]);
+        fn_movie =  List_fn_mov_cat{id_movie};
+        v_add = VideoReader([List_pn_mov_cat{id_movie}, '\', fn_movie]);
+
         while hasFrame(v_add)
             frame_add = readFrame(v_add);
             writeVideo(v, frame_add);
         end
     end
     close(v);
-    save([pn_save '\merged_movies.mat'],'List_fn_mov_cat','List_pn_mov_cat');
+    save([pn_save '\merged_movies.mat'],'List_fn_mov_cat','List_pn_mov_cat','Labels');
 end
 %-------------------------------------------------------------------------
 [fn_mov_cat, pn_mov_cat] = uigetfile([pn_save, '\*.avi'],'select concatenated .avi to make movie filter');
